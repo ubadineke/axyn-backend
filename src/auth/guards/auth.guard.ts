@@ -4,47 +4,34 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { UserService } from 'src/user/user.service';
+import { Request } from 'express';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(
-    private readonly jwtService: JwtService,
-    private readonly userService: UserService,
-    private readonly configService: ConfigService,
-  ) {}
+  constructor(private jwtService: JwtService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const token = this.extractTokenFromHeader(request);
+    const token = this.extractTokenFromBody(request);
 
     if (!token) {
       throw new UnauthorizedException('No token provided');
     }
+
     try {
-      const payload = await this.jwtService.verifyAsync(token, {
-        secret: this.configService.get('JWT_SECRET'),
-      });
-
-      const user = await this.userService.findOne(payload.sub);
-
-      if (!user) throw new UnauthorizedException('User no longer exists');
-      request['user'] = user;
-    } catch (error) {
-      console.error('Token validation failed', error);
-      throw new UnauthorizedException('Token validation failed');
+      const payload = await this.jwtService.verifyAsync(token);
+      // Attach user payload to request object
+      request['user'] = payload;
+    } catch {
+      throw new UnauthorizedException('Invalid token');
     }
 
     return true;
   }
 
-  private extractTokenFromHeader(request: Request): string | undefined {
-    const authHeader = request.headers['authorization'];
-    if (!authHeader) return;
-
-    const [type, token] = authHeader.split(' ');
-    return type === 'Bearer' ? token : undefined;
+  private extractTokenFromBody(request: Request): string | undefined {
+    // Extract JWT from request body (mobile app pattern)
+    return request.body?.token || request.body?.accessToken;
   }
 }

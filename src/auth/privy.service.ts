@@ -1,13 +1,26 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrivyClient } from '@privy-io/node';
-import Request from 'express';
 
-// interface RequestWithCookies extends Request {
-//   cookies: {
-//     [key: string]: string;
-//   };
-// }
+export interface PrivyVerifiedClaims {
+  appId: string;
+  userId: string;
+  issuer: string;
+  issuedAt: number;
+  expiration: number;
+  sessionId: string;
+}
+
+export interface PrivyUserData {
+  id: string;
+  email?: { address: string };
+  wallet?: { address: string };
+  linkedAccounts: Array<{
+    type: string;
+    address?: string;
+    email?: string;
+  }>;
+}
 
 @Injectable()
 export class PrivyService {
@@ -20,42 +33,50 @@ export class PrivyService {
     });
   }
 
-  async verifyAuthToken(token: string) {
+  /**
+   * Verify the Privy auth token and return user claims
+   */
+  async verifyAuthToken(token: string): Promise<PrivyVerifiedClaims> {
     if (!token) {
-      throw new UnauthorizedException('Token is missing');
+      throw new UnauthorizedException('Auth token is missing');
     }
+
     try {
       const verifiedClaims = await this.privyClient
         .utils()
         .auth()
         .verifyAuthToken(token);
+
       if (!verifiedClaims) {
-        throw new UnauthorizedException('Failed to verify token');
+        throw new UnauthorizedException('Failed to verify auth token');
       }
+
+      // Map the response to our interface
+      return {
+        appId: verifiedClaims.app_id,
+        userId: verifiedClaims.user_id,
+        issuer: verifiedClaims.issuer,
+        issuedAt: verifiedClaims.issued_at,
+        expiration: verifiedClaims.expiration,
+        sessionId: verifiedClaims.session_id,
+      };
     } catch (error) {
-      throw new Error(`Failed to verify Privy token: ${error.message}`);
+      throw new UnauthorizedException(
+        `Invalid auth token: ${error.message}`,
+      );
     }
   }
 
-  // async getUserData(req: RequestWithCookies): Promise<any> {
-  //   const idToken = req.cookies?.['privy-id-token']; // Retrieve token from cookies
-
-  //   if (!idToken) {
-  //     throw new UnauthorizedException('No Privy identity token found');
-  //   }
-
-  //   try {
-  //     // Get user details from Privy
-  //     return await this.privyClient.getUser({ idToken });
-  //   } catch (error) {
-  //     throw new Error(`Failed to get user from Privy: ${error.message}`);
-  //   }
-  // }
-  // async getUserDataV2(userId: string) {
-  //   try {
-  //     return await this.privyClient.getUser(userId);
-  //   } catch (error) {
-  //     throw new Error(`Failed to get user from Privy 2: ${error.message}`);
-  //   }
-  // }
+  /**
+   * Get user details from Privy using userId (DID)
+   */
+  async getUserFromPrivy(userId: string): Promise<any> {
+    try {
+      // @ts-expect-error Privy SDK types may not match perfectly
+      const user = await this.privyClient.users().get({ did: userId });
+      return user;
+    } catch (error) {
+      throw new Error(`Failed to get user from Privy: ${error.message}`);
+    }
+  }
 }
