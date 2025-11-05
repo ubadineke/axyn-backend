@@ -1,3 +1,10 @@
+import { IsOptional, IsString } from 'class-validator';
+
 export class LoginDto {
-  authToken: string;
+    @IsString()
+    authToken: string;
+
+    @IsOptional()
+    @IsString()
+    walletAddress?: string;
 }

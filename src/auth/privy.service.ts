@@ -34,9 +34,9 @@ export class PrivyService {
   }
 
   /**
-   * Verify the Privy auth token and return user claims
+   * Verify the Privy auth token and return user claims with full user data
    */
-  async verifyAuthToken(token: string): Promise<PrivyVerifiedClaims> {
+  async verifyAuthToken(token: string): Promise<any> {
     if (!token) {
       throw new UnauthorizedException('Auth token is missing');
     }
@@ -51,15 +51,10 @@ export class PrivyService {
         throw new UnauthorizedException('Failed to verify auth token');
       }
 
-      // Map the response to our interface
-      return {
-        appId: verifiedClaims.app_id,
-        userId: verifiedClaims.user_id,
-        issuer: verifiedClaims.issuer,
-        issuedAt: verifiedClaims.issued_at,
-        expiration: verifiedClaims.expiration,
-        sessionId: verifiedClaims.session_id,
-      };
+      // The verified claims contain the full user object
+      console.log('🔍 [PRIVY] Verified claims keys:', Object.keys(verifiedClaims));
+
+      return verifiedClaims;
     } catch (error) {
       throw new UnauthorizedException(
         `Invalid auth token: ${error.message}`,
@@ -68,15 +63,24 @@ export class PrivyService {
   }
 
   /**
-   * Get user details from Privy using userId (DID)
+   * Fetch the full Privy user record (including linked accounts) by user id
    */
-  async getUserFromPrivy(userId: string): Promise<any> {
+  async getUserFromPrivy(userId: string): Promise<any | null> {
+    if (!userId) {
+      return null;
+    }
+
     try {
-      // @ts-expect-error Privy SDK types may not match perfectly
-      const user = await this.privyClient.users().get({ did: userId });
+      // The SDK exposes `_get` for retrieving a user by id.
+      // `users()` returns an extended resource that inherits this method.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userResource: any = this.privyClient.users();
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+      const user = await userResource._get(userId);
       return user;
     } catch (error) {
-      throw new Error(`Failed to get user from Privy: ${error.message}`);
+      console.warn(`⚠️  [PRIVY] Failed to fetch user ${userId} from Privy API: ${error}`);
+      return null;
     }
   }
 }

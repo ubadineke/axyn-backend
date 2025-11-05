@@ -8,7 +8,7 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-  ) {}
+  ) { }
 
   async findByPrivyUserId(privyUserId: string): Promise<User | null> {
     return this.userRepository.findOne({ where: { privyUserId } });
@@ -23,6 +23,11 @@ export class UserService {
     walletAddress: string;
     email?: string;
     name?: string;
+    loginMethod?: string;
+    phoneNumber?: string;
+    twitterUsername?: string;
+    discordUsername?: string;
+    googleEmail?: string;
   }): Promise<User> {
     const user = this.userRepository.create(userData);
     return this.userRepository.save(user);
@@ -34,6 +39,13 @@ export class UserService {
       email: string;
       name: string;
       walletAddress: string;
+      bio: string;
+      avatarUrl: string;
+      loginMethod: string;
+      phoneNumber: string;
+      twitterUsername: string;
+      discordUsername: string;
+      googleEmail: string;
     }>,
   ): Promise<User | null> {
     await this.userRepository.update(id, updateData);
