@@ -23,12 +23,48 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+AxyN Backend API - NestJS backend for the AxyN AI Agent Marketplace mobile application.
+
+## Features
+
+- **Privy Authentication Integration**: Verifies Privy auth tokens from mobile app
+- **JWT-based Authorization**: Issues and validates JWT tokens for protected routes
+- **TypeORM + PostgreSQL**: Database ORM with migrations support
+- **Mobile-First Auth Guard**: Accepts JWT from request body (not headers) for mobile compatibility
+- **User Management**: Automatic user creation from Privy identity
 
 ## Project setup
 
 ```bash
+# Install dependencies
 $ npm install
+
+# Set up environment variables
+$ cp .env.example .env
+# Edit .env with your Privy credentials and JWT secret
+
+# Run database migrations (when available)
+$ npm run migration:run
+```
+
+## Environment Variables
+
+Required environment variables in `.env`:
+
+```env
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/axyn_db
+
+# Privy Authentication
+PRIVY_APP_ID=your_privy_app_id
+PRIVY_APP_SECRET=your_privy_app_secret
+
+# JWT Configuration
+JWT_SECRET=your_secure_jwt_secret_minimum_32_chars
+
+# Server
+PORT=3000
+NODE_ENV=development
 ```
 
 ## Compile and run the project
@@ -56,6 +92,80 @@ $ npm run test:e2e
 # test coverage
 $ npm run test:cov
 ```
+
+## Authentication Flow
+
+### Architecture Overview
+
+```
+Mobile App (Privy) → POST /auth/login → Backend verifies token → 
+Returns JWT → Mobile stores JWT → Mobile sends JWT in request body
+```
+
+### 1. Login Endpoint
+
+**POST** `/auth/login`
+
+Request body:
+```json
+{
+  "authToken": "privy_auth_token_from_mobile"
+}
+```
+
+Response:
+```json
+{
+  "accessToken": "jwt_token",
+  "user": {
+    "id": 1,
+    "privyUserId": "did:privy:...",
+    "walletAddress": "solana_wallet_address",
+    "email": "user@example.com",
+    "name": "User Name"
+  }
+}
+```
+
+### 2. Protected Routes
+
+Use `@UseGuards(AuthGuard)` on any route that requires authentication.
+
+Example:
+```typescript
+@Get('me')
+@UseGuards(AuthGuard)
+async getCurrentUser(@Request() req) {
+  const userId = req.user.sub; // JWT payload
+  return this.userService.findById(userId);
+}
+```
+
+### 3. Mobile Integration
+
+The `AuthGuard` expects JWT in request **body** (not headers):
+
+```typescript
+// Mobile app should send requests like:
+{
+  "token": "jwt_token_here",
+  // ...other request data
+}
+```
+
+### How It Works
+
+1. **Mobile app** authenticates with Privy (OAuth/Email OTP)
+2. **Mobile app** gets Privy auth token via `privy.user.getAccessToken()`
+3. **Mobile app** sends token to `POST /auth/login`
+4. **Backend** verifies Privy token using `@privy-io/node` SDK
+5. **Backend** fetches user details from Privy API
+6. **Backend** checks if user exists in database (by `privyUserId`)
+7. **Backend** creates user if new, updates if existing
+8. **Backend** signs JWT with payload: `{ sub: user.id, privyUserId, walletAddress }`
+9. **Backend** returns JWT + user object
+10. **Mobile app** stores JWT in secure storage
+11. **Mobile app** includes JWT in body of all protected API requests
 
 ## Deployment
 

@@ -1,13 +1,26 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrivyClient } from '@privy-io/node';
-import Request from 'express';
 
-// interface RequestWithCookies extends Request {
-//   cookies: {
-//     [key: string]: string;
-//   };
-// }
+export interface PrivyVerifiedClaims {
+  appId: string;
+  userId: string;
+  issuer: string;
+  issuedAt: number;
+  expiration: number;
+  sessionId: string;
+}
+
+export interface PrivyUserData {
+  id: string;
+  email?: { address: string };
+  wallet?: { address: string };
+  linkedAccounts: Array<{
+    type: string;
+    address?: string;
+    email?: string;
+  }>;
+}
 
 @Injectable()
 export class PrivyService {
@@ -20,42 +33,54 @@ export class PrivyService {
     });
   }
 
-  async verifyAuthToken(token: string) {
+  /**
+   * Verify the Privy auth token and return user claims with full user data
+   */
+  async verifyAuthToken(token: string): Promise<any> {
     if (!token) {
-      throw new UnauthorizedException('Token is missing');
+      throw new UnauthorizedException('Auth token is missing');
     }
+
     try {
       const verifiedClaims = await this.privyClient
         .utils()
         .auth()
         .verifyAuthToken(token);
+
       if (!verifiedClaims) {
-        throw new UnauthorizedException('Failed to verify token');
+        throw new UnauthorizedException('Failed to verify auth token');
       }
+
+      // The verified claims contain the full user object
+      console.log('🔍 [PRIVY] Verified claims keys:', Object.keys(verifiedClaims));
+
+      return verifiedClaims;
     } catch (error) {
-      throw new Error(`Failed to verify Privy token: ${error.message}`);
+      throw new UnauthorizedException(
+        `Invalid auth token: ${error.message}`,
+      );
     }
   }
 
-  // async getUserData(req: RequestWithCookies): Promise<any> {
-  //   const idToken = req.cookies?.['privy-id-token']; // Retrieve token from cookies
+  /**
+   * Fetch the full Privy user record (including linked accounts) by user id
+   */
+  async getUserFromPrivy(userId: string): Promise<any | null> {
+    if (!userId) {
+      return null;
+    }
 
-  //   if (!idToken) {
-  //     throw new UnauthorizedException('No Privy identity token found');
-  //   }
-
-  //   try {
-  //     // Get user details from Privy
-  //     return await this.privyClient.getUser({ idToken });
-  //   } catch (error) {
-  //     throw new Error(`Failed to get user from Privy: ${error.message}`);
-  //   }
-  // }
-  // async getUserDataV2(userId: string) {
-  //   try {
-  //     return await this.privyClient.getUser(userId);
-  //   } catch (error) {
-  //     throw new Error(`Failed to get user from Privy 2: ${error.message}`);
-  //   }
-  // }
+    try {
+      // The SDK exposes `_get` for retrieving a user by id.
+      // `users()` returns an extended resource that inherits this method.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userResource: any = this.privyClient.users();
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+      const user = await userResource._get(userId);
+      return user;
+    } catch (error) {
+      console.warn(`⚠️  [PRIVY] Failed to fetch user ${userId} from Privy API: ${error}`);
+      return null;
+    }
+  }
 }
