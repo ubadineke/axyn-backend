@@ -50,7 +50,26 @@ export class ProxyController {
             message: proxyRequestDto.message,
             conversationId: proxyRequestDto.conversationId,
             metadata: proxyRequestDto.metadata,
+            file: proxyRequestDto.file,
+            filename: proxyRequestDto.filename,
         });
+
+        // Extract user prompt and response summary for activity tracking
+        const userPrompt = proxyRequestDto.message || proxyRequestDto.metadata?.prompt || '';
+        const agentResponseText = result.agentResponse?.text || JSON.stringify(result.agentResponse);
+        const responseSummary = agentResponseText.length > 500
+            ? agentResponseText.substring(0, 500) + '...'
+            : agentResponseText;
+
+        // Determine activity type based on request content
+        let activityType = 'query'; // default
+        if (proxyRequestDto.file) {
+            activityType = 'upload';
+        } else if (proxyRequestDto.conversationId) {
+            activityType = 'chat';
+        } else if (proxyRequestDto.metadata?.activityType) {
+            activityType = proxyRequestDto.metadata.activityType;
+        }
 
         // Record transaction with actual payment info from guard
         const transaction = await this.proxyService.recordTransaction(
@@ -58,6 +77,9 @@ export class ProxyController {
             userId,
             paymentInfo.amount,
             paymentInfo.signature,
+            userPrompt,
+            responseSummary,
+            activityType,
         );
 
         return {

@@ -59,6 +59,9 @@ export class Agent {
     @Column({ type: 'varchar', length: 50, default: 'chat' })
     interfaceType: string; // 'chat', 'single-query', 'data'
 
+    @Column({ type: 'jsonb', nullable: true })
+    metadata: Record<string, any>; // Provider-specific config (model, requestFormat, etc.)
+
     @Column({ type: 'int' })
     ownerId: number;
 

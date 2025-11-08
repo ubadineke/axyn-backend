@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ProxyController } from './proxy.controller';
 import { ProxyService } from './proxy.service';
+import { PaymentVerificationService } from './services/payment-verification.service';
 import { X402Guard } from './guards/x402.guard';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { Agent } from '../agent/entities/agent.entity';
@@ -22,10 +23,15 @@ import { Transaction } from '../transaction/entities/transaction.entity';
         }),
     ],
     controllers: [ProxyController],
-    providers: [ProxyService, AuthGuard, X402Guard],
-    exports: [ProxyService],
+    providers: [
+        ProxyService,
+        PaymentVerificationService,
+        AuthGuard,
+        X402Guard
+    ],
+    exports: [ProxyService, PaymentVerificationService],
 })
 export class ProxyModule {
     // Note: x402 payment protection is applied via X402Guard in controller
-    // This allows dynamic pricing per agent
+    // Payment verification uses on-chain Solana RPC (industry standard)
 }
