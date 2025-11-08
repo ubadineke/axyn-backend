@@ -64,6 +64,9 @@ export class TransactionService {
             currency: dto.currency || 'USDC',
             status: 'completed',
             metadata: dto.metadata,
+            userPrompt: dto.userPrompt,
+            responseSummary: dto.responseSummary,
+            activityType: dto.activityType || 'query',
         });
 
         const saved = await this.transactionRepository.save(transaction);
@@ -134,9 +137,83 @@ export class TransactionService {
                 'SUM(transaction.amount) as totalSpent',
             ])
             .groupBy('agent.id')
+            .addGroupBy('agent.name')
+            .addGroupBy('agent.description')
+            .addGroupBy('agent.category')
+            .addGroupBy('agent.pricePerRequest')
+            .addGroupBy('agent.rating')
+            .addGroupBy('agent.isOnline')
             .orderBy('lastUsed', 'DESC')
             .getRawMany();
 
-        return transactions;
+        // Transform raw results to proper structure
+        return transactions.map((row) => ({
+            id: row.agent_id,
+            name: row.agent_name,
+            description: row.agent_description,
+            category: row.agent_category,
+            price: parseFloat(row.agent_pricePerRequest) || 0,
+            rating: parseFloat(row.agent_rating) || 0,
+            status: row.agent_isOnline ? 'active' : 'offline',
+            lastUsed: row.lastUsed ? new Date(row.lastUsed).toISOString() : new Date().toISOString(),
+            usageCount: parseInt(row.timesHired, 10) || 0,
+            totalSpent: parseFloat(row.totalSpent) || 0,
+        }));
+    }
+
+    /**
+     * Get user's detailed activity history with prompts and responses
+     */
+    async getActivityHistory(userId: number): Promise<any[]> {
+        const transactions = await this.transactionRepository.find({
+            where: { userId, status: 'completed' },
+            relations: ['agent'],
+            order: { createdAt: 'DESC' },
+            take: 100, // Limit to last 100 activities
+        });
+
+        return transactions.map((tx) => ({
+            id: tx.id,
+            agentId: tx.agent.id,
+            agentName: tx.agent.name,
+            agentCategory: tx.agent.category,
+            amount: parseFloat(tx.amount as any) || 0,
+            currency: tx.currency,
+            timestamp: tx.createdAt.toISOString(),
+            activityType: tx.activityType || 'query',
+            userPrompt: tx.userPrompt ? tx.userPrompt.substring(0, 100) + '...' : null, // Preview only
+            hasFullHistory: !!tx.userPrompt,
+            signature: tx.signature,
+        }));
+    }
+
+    /**
+     * Get detailed information for a specific activity/transaction
+     */
+    async getActivityDetail(userId: number, transactionId: number): Promise<any> {
+        const transaction = await this.transactionRepository.findOne({
+            where: { id: transactionId, userId },
+            relations: ['agent'],
+        });
+
+        if (!transaction) {
+            throw new NotFoundException('Activity not found');
+        }
+
+        return {
+            id: transaction.id,
+            agentId: transaction.agent.id,
+            agentName: transaction.agent.name,
+            agentDescription: transaction.agent.description,
+            agentCategory: transaction.agent.category,
+            amount: parseFloat(transaction.amount as any) || 0,
+            currency: transaction.currency,
+            timestamp: transaction.createdAt.toISOString(),
+            activityType: transaction.activityType || 'query',
+            userPrompt: transaction.userPrompt,
+            responseSummary: transaction.responseSummary,
+            signature: transaction.signature,
+            metadata: transaction.metadata ? JSON.parse(transaction.metadata) : null,
+        };
     }
 }

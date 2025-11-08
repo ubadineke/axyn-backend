@@ -31,6 +31,8 @@
     "@nestjs/swagger": "^11.2.1",
     "@nestjs/typeorm": "^11.0.0",
     "@privy-io/node": "^0.4.0",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4",
     "@types/multer": "^2.0.0",
     "axios": "^1.13.2",
     "class-transformer": "^0.5.1",

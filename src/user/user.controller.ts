@@ -27,6 +27,10 @@ export class UserController {
     console.log('📖 [USER] GET /user/me - Fetching profile for user:', req.user.sub);
     // The user payload from JWT is attached to request by AuthGuard
     const userId = req.user.sub;
+
+    // Update stats before returning user profile
+    await this.userService.updateUserStats(userId);
+
     const user = await this.userService.findById(userId);
     console.log('✅ [USER] Profile fetched successfully');
     return user;

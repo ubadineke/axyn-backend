@@ -11,4 +11,12 @@ export class ProxyRequestDto {
     @IsOptional()
     @IsObject()
     metadata?: Record<string, any>;
+
+    @IsOptional()
+    @IsString()
+    file?: string; // Base64-encoded file data
+
+    @IsOptional()
+    @IsString()
+    filename?: string; // Original filename
 }

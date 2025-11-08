@@ -56,4 +56,20 @@ export class TransactionController {
         const hasPaid = await this.transactionService.hasUserPaidAgent(userId, +agentId);
         return { hasPaid };
     }
+
+    @Get('activity-history')
+    @UseGuards(AuthGuard)
+    async getActivityHistory(@Request() req) {
+        const userId = req.user.sub;
+        console.log('[TransactionController] Fetching activity history for user:', userId);
+        return this.transactionService.getActivityHistory(userId);
+    }
+
+    @Get('activity/:id')
+    @UseGuards(AuthGuard)
+    async getActivityDetail(@Request() req, @Param('id') transactionId: string) {
+        const userId = req.user.sub;
+        console.log('[TransactionController] Fetching activity detail:', transactionId);
+        return this.transactionService.getActivityDetail(userId, +transactionId);
+    }
 }

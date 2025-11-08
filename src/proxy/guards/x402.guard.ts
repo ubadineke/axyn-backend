@@ -9,20 +9,29 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Request, Response } from 'express';
 import { Agent } from '../../agent/entities/agent.entity';
+import { PaymentVerificationService } from '../services/payment-verification.service';
 
 /**
  * Custom x402 Payment Guard
  * 
  * This guard dynamically enforces payment based on each agent's pricePerRequest.
- * For MVP, it returns 402 with payment requirements but doesn't verify payments yet.
+ * Implements industry-standard payment verification following x402 protocol best practices.
  * 
  * Flow:
  * 1. Extract agentId from route params
- * 2. Fetch agent from database to get pricePerRequest and walletAddress
+ * 2. Fetch agent from database to get pricePerRequest
  * 3. Check if request includes payment proof (X-Payment-Signature header)
- * 4. If no payment → return 402 with agent's payment details
- * 5. If payment exists → verify with Corbits facilitator (TODO: implement verification)
+ * 4. If no payment → return 402 with payment requirements
+ * 5. If payment exists → verify on-chain using PaymentVerificationService
  * 6. Allow request to proceed if payment valid
+ * 
+ * Security Features:
+ * - Nonce replay prevention
+ * - Signature double-spend prevention
+ * - On-chain transaction verification
+ * - Amount validation with tolerance
+ * - Recipient verification
+ * - Token mint verification (USDC only)
  */
 @Injectable()
 export class X402Guard implements CanActivate {
@@ -30,6 +39,7 @@ export class X402Guard implements CanActivate {
         @InjectRepository(Agent)
         private readonly agentRepository: Repository<Agent>,
         private readonly configService: ConfigService,
+        private readonly paymentVerificationService: PaymentVerificationService,
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -56,13 +66,15 @@ export class X402Guard implements CanActivate {
             throw new UnauthorizedException(`Agent ${agent.name} is offline`);
         }
 
-        // Get payment recipient (agent owner's wallet, not platform wallet)
-        const paymentRecipient = agent.walletAddress;
+        // Get AxyN platform wallet (receives all payments, backend handles split to envoy)
+        const platformWallet = this.configService.get<string>('PLATFORM_WALLET_ADDRESS');
 
-        if (!paymentRecipient) {
-            console.error(`[X402Guard] Agent ${agentId} has no wallet address configured`);
-            throw new UnauthorizedException('Agent wallet not configured');
+        if (!platformWallet) {
+            console.error(`[X402Guard] PLATFORM_WALLET_ADDRESS not configured in environment`);
+            throw new UnauthorizedException('Platform wallet not configured');
         }
+
+        const paymentRecipient = platformWallet;
 
         // Convert price to USDC base units (6 decimals)
         // Example: 0.001 USD = 1000 USDC base units
@@ -83,22 +95,23 @@ export class X402Guard implements CanActivate {
             response.status(402);
 
             // Set x402 payment headers
+            // Get network from config
+            const network = this.configService.get<string>('SOLANA_NETWORK') || 'devnet';
+
             response.setHeader('X-Payment-Required', 'true');
             response.setHeader('X-Payment-Amount', priceInBaseUnits.toString());
             response.setHeader('X-Payment-Asset', 'USDC');
-            response.setHeader('X-Payment-Network', 'devnet'); // TODO: Switch to mainnet-beta
+            response.setHeader('X-Payment-Network', network);
             response.setHeader('X-Payment-Recipient', paymentRecipient);
             response.setHeader('X-Payment-Nonce', nonce);
-            response.setHeader('X-Payment-Resource', request.url);
-
-            // Return JSON response with payment details
+            response.setHeader('X-Payment-Resource', request.url);            // Return JSON response with payment details
             response.json({
                 statusCode: 402,
                 message: 'Payment Required',
                 payment: {
                     amount: priceInBaseUnits,
                     asset: 'USDC',
-                    network: 'devnet',
+                    network: network,
                     recipient: paymentRecipient,
                     nonce,
                     resource: request.url,
@@ -114,25 +127,34 @@ export class X402Guard implements CanActivate {
             return false; // Block request
         }
 
-        // Payment proof exists → verify with Corbits facilitator
+        // Payment proof exists → verify on-chain
         console.log(`[X402Guard] Payment signature provided for agent ${agentId}`);
         console.log(`[X402Guard] Signature: ${paymentSignature.substring(0, 20)}...`);
         console.log(`[X402Guard] Nonce: ${paymentNonce}`);
 
-        // Verify payment with Corbits facilitator
-        const isPaymentValid = await this.verifyPaymentWithFacilitator({
-            signature: paymentSignature,
-            nonce: paymentNonce,
-            amount: priceInBaseUnits,
-            recipient: paymentRecipient,
-            network: 'devnet', // TODO: Change to 'mainnet-beta' for production
-        });
-
-        if (!isPaymentValid) {
-            throw new UnauthorizedException('Payment verification failed - invalid or insufficient payment');
+        // Extract userId from JWT (set by AuthGuard)
+        const userId = (request as any).user?.sub;
+        if (!userId) {
+            throw new UnauthorizedException('User authentication required for payment verification');
         }
 
-        console.log(`[X402Guard] ✅ Payment verified - allowing request to proceed`);
+        // Verify payment on-chain using robust verification service
+        const verificationResult = await this.paymentVerificationService.verifyPayment({
+            signature: paymentSignature,
+            nonce: paymentNonce,
+            expectedAmount: priceInBaseUnits,
+            userId: userId,
+            agentId: agent.id,
+        });
+
+        if (!verificationResult.verified) {
+            console.error(`[X402Guard] ❌ Payment verification failed: ${verificationResult.reason}`);
+            throw new UnauthorizedException(
+                `Payment verification failed: ${verificationResult.reason || 'Invalid payment'}`
+            );
+        }
+
+        console.log(`[X402Guard] ✅ Payment verified on-chain - allowing request to proceed`);
 
         // Attach payment info to request for controller to record transaction
         (request as any).x402Payment = {
@@ -148,74 +170,9 @@ export class X402Guard implements CanActivate {
 
     /**
      * Generate a unique nonce for payment requests
+     * Format: timestamp-random to ensure uniqueness and prevent replay attacks
      */
     private generateNonce(): string {
         return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
-    }
-
-    /**
-     * Verify payment with Corbits facilitator
-     * 
-     * Calls the facilitator's /verify endpoint to validate:
-     * - Transaction exists on-chain
-     * - Correct amount was paid
-     * - Payment went to correct recipient
-     * - Nonce hasn't been reused
-     */
-    private async verifyPaymentWithFacilitator(params: {
-        signature: string;
-        nonce: string;
-        amount: number;
-        recipient: string;
-        network: string;
-    }): Promise<boolean> {
-        try {
-            // Import axios dynamically (already installed)
-            const axios = (await import('axios')).default;
-
-            console.log(`[X402Guard] Verifying payment with Corbits facilitator`);
-            console.log(`[X402Guard] Signature: ${params.signature}`);
-            console.log(`[X402Guard] Amount: ${params.amount} base units`);
-            console.log(`[X402Guard] Recipient: ${params.recipient}`);
-
-            // Call Corbits facilitator /verify endpoint
-            // Based on documentation, the facilitator verifies the transaction on-chain
-            const response = await axios.post(
-                'https://facilitator.corbits.dev/verify',
-                {
-                    network: params.network, // 'devnet' or 'mainnet-beta'
-                    signature: params.signature,
-                    nonce: params.nonce,
-                    requirements: {
-                        asset: 'USDC',
-                        amount: params.amount.toString(),
-                        payTo: params.recipient,
-                    },
-                },
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    timeout: 10000, // 10 second timeout
-                },
-            );
-
-            console.log(`[X402Guard] Facilitator response:`, response.data);
-
-            // Check if verification was successful
-            if (response.status === 200 && response.data.verified === true) {
-                console.log(`[X402Guard] ✅ Payment verified successfully`);
-                return true;
-            }
-
-            console.error(`[X402Guard] ❌ Payment verification failed:`, response.data);
-            return false;
-        } catch (error) {
-            console.error(`[X402Guard] Error verifying payment with facilitator:`, error);
-
-            // If facilitator is unreachable, we should fail secure (reject payment)
-            // In production, you might want to implement retry logic or fallback
-            return false;
-        }
     }
 }

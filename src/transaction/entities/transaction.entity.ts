@@ -31,6 +31,9 @@ export class Transaction {
     @Column({ type: 'varchar', length: 255, unique: true })
     signature: string; // Solana transaction signature
 
+    @Column({ type: 'varchar', length: 255, unique: true, nullable: true })
+    nonce: string; // Payment nonce for replay prevention
+
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     amount: number; // Amount paid in USD
 
@@ -42,6 +45,15 @@ export class Transaction {
 
     @Column({ type: 'text', nullable: true })
     metadata: string; // JSON string for additional data
+
+    @Column({ type: 'text', nullable: true })
+    userPrompt: string; // User's input/query (for history)
+
+    @Column({ type: 'text', nullable: true })
+    responseSummary: string; // First 500 chars of agent response
+
+    @Column({ type: 'varchar', length: 50, default: 'query' })
+    activityType: string; // query, chat, upload, analysis, etc.
 
     @CreateDateColumn()
     createdAt: Date;

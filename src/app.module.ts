@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { AgentModule } from './agent/agent.module';
 import { TransactionModule } from './transaction/transaction.module';
 import { ProxyModule } from './proxy/proxy.module';
+import { ConversationModule } from './conversation/conversation.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { envValidationSchema } from './joi-env.schema'
@@ -27,7 +28,7 @@ import { envValidationSchema } from './joi-env.schema'
       envFilePath: '.env',
       validationSchema: envValidationSchema,
     }) as any,
-    UserModule, AuthModule, AgentModule, TransactionModule, ProxyModule],
+    UserModule, AuthModule, AgentModule, TransactionModule, ProxyModule, ConversationModule],
   controllers: [AppController],
   providers: [AppService],
 })
